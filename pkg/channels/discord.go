@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -18,14 +19,17 @@ import (
 const (
 	transcriptionTimeout = 30 * time.Second
 	sendTimeout          = 10 * time.Second
+	typingInterval       = 8 * time.Second
 )
 
 type DiscordChannel struct {
 	*BaseChannel
-	session     *discordgo.Session
-	config      config.DiscordConfig
-	transcriber *voice.GroqTranscriber
-	ctx         context.Context
+	session       *discordgo.Session
+	config        config.DiscordConfig
+	transcriber   *voice.GroqTranscriber
+	ctx           context.Context
+	typingCancels map[string]context.CancelFunc
+	typingMu      sync.Mutex
 }
 
 func NewDiscordChannel(cfg config.DiscordConfig, bus *bus.MessageBus) (*DiscordChannel, error) {
@@ -37,11 +41,12 @@ func NewDiscordChannel(cfg config.DiscordConfig, bus *bus.MessageBus) (*DiscordC
 	base := NewBaseChannel("discord", cfg, bus, cfg.AllowFrom)
 
 	return &DiscordChannel{
-		BaseChannel: base,
-		session:     session,
-		config:      cfg,
-		transcriber: nil,
-		ctx:         context.Background(),
+		BaseChannel:   base,
+		session:       session,
+		config:        cfg,
+		transcriber:   nil,
+		ctx:           context.Background(),
+		typingCancels: make(map[string]context.CancelFunc),
 	}, nil
 }
 
@@ -100,6 +105,9 @@ func (c *DiscordChannel) Send(ctx context.Context, msg bus.OutboundMessage) erro
 	if channelID == "" {
 		return fmt.Errorf("channel ID is empty")
 	}
+
+	// Stop typing indicator for this channel
+	c.stopTyping(channelID)
 
 	runes := []rune(msg.Content)
 	if len(runes) == 0 {
@@ -282,11 +290,26 @@ func (c *DiscordChannel) handleMessage(s *discordgo.Session, m *discordgo.Messag
 		return
 	}
 
-	if err := c.session.ChannelTyping(m.ChannelID); err != nil {
-		logger.ErrorCF("discord", "Failed to send typing indicator", map[string]any{
-			"error": err.Error(),
-		})
-	}
+	// Start typing indicator loop (Discord typing expires after ~10 seconds)
+	typingCtx, cancelTyping := context.WithCancel(c.getContext())
+	go func() {
+		ticker := time.NewTicker(typingInterval)
+		defer ticker.Stop()
+		c.session.ChannelTyping(m.ChannelID)
+		for {
+			select {
+			case <-typingCtx.Done():
+				return
+			case <-ticker.C:
+				c.session.ChannelTyping(m.ChannelID)
+			}
+		}
+	}()
+
+	// Store cancel func to stop typing when response is sent
+	c.typingMu.Lock()
+	c.typingCancels[m.ChannelID] = cancelTyping
+	c.typingMu.Unlock()
 
 	// 检查白名单，避免为被拒绝的用户下载附件和转录
 	if !c.IsAllowed(m.Author.ID) {
@@ -393,4 +416,13 @@ func (c *DiscordChannel) downloadAttachment(url, filename string) string {
 	return utils.DownloadFile(url, filename, utils.DownloadOptions{
 		LoggerPrefix: "discord",
 	})
+}
+
+func (c *DiscordChannel) stopTyping(channelID string) {
+	c.typingMu.Lock()
+	defer c.typingMu.Unlock()
+	if cancel, ok := c.typingCancels[channelID]; ok {
+		cancel()
+		delete(c.typingCancels, channelID)
+	}
 }

@@ -261,11 +261,8 @@ func CreateProvider(cfg *config.Config) (LLMProvider, error) {
 				if cfg.Providers.Anthropic.AuthMethod == "oauth" || cfg.Providers.Anthropic.AuthMethod == "token" {
 					return createClaudeAuthProvider()
 				}
-				apiKey = cfg.Providers.Anthropic.APIKey
 				apiBase = cfg.Providers.Anthropic.APIBase
-				if apiBase == "" {
-					apiBase = "https://api.anthropic.com/v1"
-				}
+				return NewClaudeProviderWithBaseURL(cfg.Providers.Anthropic.APIKey, apiBase), nil
 			}
 		case "openrouter":
 			if cfg.Providers.OpenRouter.APIKey != "" {

@@ -104,6 +104,8 @@ func createToolRegistry(workspace string, restrict bool, cfg *config.Config, msg
 	})
 	registry.Register(messageTool)
 
+	registry.Register(tools.NewOpenCodeTool(workspace))
+
 	return registry
 }
 

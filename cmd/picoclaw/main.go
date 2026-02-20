@@ -664,6 +664,14 @@ func gatewayCmd() {
 		fmt.Printf("Error starting channels: %v\n", err)
 	}
 
+	if discordMultiChannel, ok := channelManager.GetChannel("discord_multi"); ok {
+		if dmc, ok := discordMultiChannel.(*channels.MultiAgentDiscordChannel); ok {
+			multiAgentHandler := channels.NewMultiAgentHandler(dmc, msgBus)
+			_ = multiAgentHandler
+			fmt.Println("✓ Discord Multi-Agent handler initialized")
+		}
+	}
+
 	healthServer := health.NewServer(cfg.Gateway.Host, cfg.Gateway.Port)
 	go func() {
 		if err := healthServer.Start(); err != nil && err != http.ErrServerClosed {
@@ -984,6 +992,10 @@ func authStatusCmd() {
 }
 
 func getConfigPath() string {
+	// Support PICOCLAW_CONFIG environment variable for custom config path
+	if configPath := os.Getenv("PICOCLAW_CONFIG"); configPath != "" {
+		return configPath
+	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".picoclaw", "config.json")
 }

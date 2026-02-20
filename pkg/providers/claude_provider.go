@@ -23,6 +23,17 @@ func NewClaudeProvider(token string) *ClaudeProvider {
 	return &ClaudeProvider{client: &client}
 }
 
+func NewClaudeProviderWithBaseURL(token, baseURL string) *ClaudeProvider {
+	if baseURL == "" {
+		baseURL = "https://api.anthropic.com"
+	}
+	client := anthropic.NewClient(
+		option.WithAuthToken(token),
+		option.WithBaseURL(baseURL),
+	)
+	return &ClaudeProvider{client: &client}
+}
+
 func NewClaudeProviderWithTokenSource(token string, tokenSource func() (string, error)) *ClaudeProvider {
 	p := NewClaudeProvider(token)
 	p.tokenSource = tokenSource
@@ -81,7 +92,24 @@ func buildClaudeParams(messages []Message, tools []ToolDefinition, model string,
 					blocks = append(blocks, anthropic.NewTextBlock(msg.Content))
 				}
 				for _, tc := range msg.ToolCalls {
-					blocks = append(blocks, anthropic.NewToolUseBlock(tc.ID, tc.Arguments, tc.Name))
+					var input interface{}
+					if tc.Arguments != nil {
+						input = tc.Arguments
+					} else if tc.Function != nil && tc.Function.Arguments != "" {
+						var args map[string]interface{}
+						if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err == nil {
+							input = args
+						} else {
+							input = map[string]interface{}{}
+						}
+					} else {
+						input = map[string]interface{}{}
+					}
+					name := tc.Name
+					if name == "" && tc.Function != nil {
+						name = tc.Function.Name
+					}
+					blocks = append(blocks, anthropic.NewToolUseBlock(tc.ID, input, name))
 				}
 				anthropicMessages = append(anthropicMessages, anthropic.NewAssistantMessage(blocks...))
 			} else {

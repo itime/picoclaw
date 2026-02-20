@@ -202,6 +202,9 @@ func (t *ExecTool) Execute(ctx context.Context, args map[string]interface{}) *To
 		output = "(no output)"
 	}
 
+	// Clean non-printable characters that may cause API issues
+	output = cleanOutput(output)
+
 	maxLen := 10000
 	if len(output) > maxLen {
 		output = output[:maxLen] + fmt.Sprintf("\n... (truncated, %d more chars)", len(output)-maxLen)
@@ -296,4 +299,15 @@ func (t *ExecTool) SetAllowPatterns(patterns []string) error {
 		t.allowPatterns = append(t.allowPatterns, re)
 	}
 	return nil
+}
+
+func cleanOutput(s string) string {
+	var result strings.Builder
+	result.Grow(len(s))
+	for _, r := range s {
+		if r == '\n' || r == '\r' || r == '\t' || (r >= 32 && r < 127) || r >= 128 {
+			result.WriteRune(r)
+		}
+	}
+	return result.String()
 }

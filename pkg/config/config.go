@@ -69,16 +69,17 @@ type AgentDefaults struct {
 }
 
 type ChannelsConfig struct {
-	WhatsApp WhatsAppConfig `json:"whatsapp"`
-	Telegram TelegramConfig `json:"telegram"`
-	Feishu   FeishuConfig   `json:"feishu"`
-	Discord  DiscordConfig  `json:"discord"`
-	MaixCam  MaixCamConfig  `json:"maixcam"`
-	QQ       QQConfig       `json:"qq"`
-	DingTalk DingTalkConfig `json:"dingtalk"`
-	Slack    SlackConfig    `json:"slack"`
-	LINE     LINEConfig     `json:"line"`
-	OneBot   OneBotConfig   `json:"onebot"`
+	WhatsApp     WhatsAppConfig          `json:"whatsapp"`
+	Telegram     TelegramConfig          `json:"telegram"`
+	Feishu       FeishuConfig            `json:"feishu"`
+	Discord      DiscordConfig           `json:"discord"`
+	DiscordMulti MultiAgentDiscordConfig `json:"discord_multi"`
+	MaixCam      MaixCamConfig           `json:"maixcam"`
+	QQ           QQConfig                `json:"qq"`
+	DingTalk     DingTalkConfig          `json:"dingtalk"`
+	Slack        SlackConfig             `json:"slack"`
+	LINE         LINEConfig              `json:"line"`
+	OneBot       OneBotConfig            `json:"onebot"`
 }
 
 type WhatsAppConfig struct {
@@ -107,6 +108,29 @@ type DiscordConfig struct {
 	Enabled   bool                `json:"enabled" env:"PICOCLAW_CHANNELS_DISCORD_ENABLED"`
 	Token     string              `json:"token" env:"PICOCLAW_CHANNELS_DISCORD_TOKEN"`
 	AllowFrom FlexibleStringSlice `json:"allow_from" env:"PICOCLAW_CHANNELS_DISCORD_ALLOW_FROM"`
+}
+
+// MultiAgentDiscordConfig supports multiple Discord bots for multi-agent chatroom
+type MultiAgentDiscordConfig struct {
+	Enabled      bool              `json:"enabled" env:"PICOCLAW_CHANNELS_DISCORD_MULTI_ENABLED"`
+	GatewayToken string            `json:"gateway_token" env:"PICOCLAW_CHANNELS_DISCORD_MULTI_GATEWAY_TOKEN"`
+	AgentTokens  AgentTokensConfig `json:"agent_tokens"`
+	GuildID      string            `json:"guild_id" env:"PICOCLAW_CHANNELS_DISCORD_MULTI_GUILD_ID"`
+	Channels     DiscordChannels   `json:"channels"`
+}
+
+// AgentTokensConfig holds tokens for each agent bot
+type AgentTokensConfig struct {
+	Master string `json:"master" env:"PICOCLAW_CHANNELS_DISCORD_MULTI_AGENT_MASTER"`
+	Dev    string `json:"dev" env:"PICOCLAW_CHANNELS_DISCORD_MULTI_AGENT_DEV"`
+	QA     string `json:"qa" env:"PICOCLAW_CHANNELS_DISCORD_MULTI_AGENT_QA"`
+	PM     string `json:"pm" env:"PICOCLAW_CHANNELS_DISCORD_MULTI_AGENT_PM"`
+	Ops    string `json:"ops" env:"PICOCLAW_CHANNELS_DISCORD_MULTI_AGENT_OPS"`
+}
+
+// DiscordChannels defines channel names for multi-agent discord
+type DiscordChannels struct {
+	Main string `json:"main" env:"PICOCLAW_CHANNELS_DISCORD_MULTI_CHANNEL_MAIN"`
 }
 
 type MaixCamConfig struct {
@@ -274,6 +298,15 @@ func DefaultConfig() *Config {
 				Enabled:   false,
 				Token:     "",
 				AllowFrom: FlexibleStringSlice{},
+			},
+			DiscordMulti: MultiAgentDiscordConfig{
+				Enabled:      false,
+				GatewayToken: "",
+				AgentTokens:  AgentTokensConfig{},
+				GuildID:      "",
+				Channels: DiscordChannels{
+					Main: "agent-chatroom",
+				},
 			},
 			MaixCam: MaixCamConfig{
 				Enabled:   false,

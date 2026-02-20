@@ -23,6 +23,21 @@
       "token": "YOUR_DISCORD_BOT_TOKEN",
       "allow_from": []
     },
+    "discord_multi": {
+      "enabled": false,
+      "gateway_token": "YOUR_GATEWAY_BOT_TOKEN",
+      "agent_tokens": {
+        "master": "YOUR_MASTER_BOT_TOKEN",
+        "dev": "YOUR_DEV_BOT_TOKEN",
+        "qa": "YOUR_QA_BOT_TOKEN",
+        "pm": "YOUR_PM_BOT_TOKEN",
+        "ops": "YOUR_OPS_BOT_TOKEN"
+      },
+      "guild_id": "YOUR_DISCORD_SERVER_ID",
+      "channels": {
+        "main": "agent-chat"
+      }
+    },
     "maixcam": {
       "enabled": false,
       "host": "0.0.0.0",
