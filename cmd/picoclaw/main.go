@@ -33,6 +33,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/heartbeat"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/migrate"
+	"github.com/sipeed/picoclaw/pkg/plugins"
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/skills"
 	"github.com/sipeed/picoclaw/pkg/state"
@@ -193,6 +194,8 @@ func main() {
 		}
 	case "version", "--version", "-v":
 		printVersion()
+	case "plugin", "plugins":
+		pluginCmd()
 	default:
 		fmt.Printf("Unknown command: %s\n", command)
 		printHelp()
@@ -213,6 +216,7 @@ func printHelp() {
 	fmt.Println("  cron        Manage scheduled tasks")
 	fmt.Println("  migrate     Migrate from OpenClaw to PicoClaw")
 	fmt.Println("  skills      Manage skills (install, list, remove)")
+	fmt.Println("  plugin      Manage plugins (install, list, remove)")
 	fmt.Println("  version     Show version information")
 }
 
@@ -1436,4 +1440,220 @@ func skillsShowCmd(loader *skills.SkillsLoader, skillName string) {
 	fmt.Printf("\n📦 Skill: %s\n", skillName)
 	fmt.Println("----------------------")
 	fmt.Println(content)
+}
+
+func pluginCmd() {
+	if len(os.Args) < 3 {
+		pluginHelp()
+		return
+	}
+
+	subcommand := os.Args[2]
+	home, _ := os.UserHomeDir()
+	pluginsDir := filepath.Join(home, ".picoclaw", "plugins")
+	installer := plugins.NewInstaller(pluginsDir)
+
+	switch subcommand {
+	case "list":
+		pluginListCmd(installer)
+	case "install":
+		if len(os.Args) < 4 {
+			fmt.Println("Usage: picoclaw plugin install <source>")
+			fmt.Println("  source: github:owner/repo, URL, or local path")
+			return
+		}
+		pluginInstallCmd(installer, os.Args[3])
+	case "remove", "uninstall":
+		if len(os.Args) < 4 {
+			fmt.Println("Usage: picoclaw plugin remove <name>")
+			return
+		}
+		pluginRemoveCmd(installer, os.Args[3])
+	case "enable":
+		if len(os.Args) < 4 {
+			fmt.Println("Usage: picoclaw plugin enable <name>")
+			return
+		}
+		pluginEnableCmd(installer, os.Args[3], true)
+	case "disable":
+		if len(os.Args) < 4 {
+			fmt.Println("Usage: picoclaw plugin disable <name>")
+			return
+		}
+		pluginEnableCmd(installer, os.Args[3], false)
+	case "update":
+		if len(os.Args) < 4 {
+			pluginUpdateAllCmd(installer)
+		} else {
+			pluginUpdateCmd(installer, os.Args[3])
+		}
+	default:
+		fmt.Printf("Unknown plugin command: %s\n", subcommand)
+		pluginHelp()
+	}
+}
+
+func pluginHelp() {
+	fmt.Println("\nPlugin commands:")
+	fmt.Println("  list                    List installed plugins")
+	fmt.Println("  install <source>        Install plugin from source")
+	fmt.Println("  remove <name>           Remove installed plugin")
+	fmt.Println("  enable <name>           Enable a plugin")
+	fmt.Println("  disable <name>          Disable a plugin")
+	fmt.Println("  update [name]           Update plugin(s) from original source")
+	fmt.Println()
+	fmt.Println("Install sources:")
+	fmt.Println("  github:owner/repo       Install from GitHub repository")
+	fmt.Println("  https://...             Install from URL (tar.gz)")
+	fmt.Println("  ./path                  Install from local directory")
+	fmt.Println()
+	fmt.Println("Examples:")
+	fmt.Println("  picoclaw plugin list")
+	fmt.Println("  picoclaw plugin install github:user/picoclaw-yunxiao")
+	fmt.Println("  picoclaw plugin install ./my-plugin")
+	fmt.Println("  picoclaw plugin enable yunxiao")
+	fmt.Println("  picoclaw plugin disable yunxiao")
+	fmt.Println("  picoclaw plugin update yunxiao")
+	fmt.Println("  picoclaw plugin update              # Update all plugins")
+	fmt.Println("  picoclaw plugin remove yunxiao")
+}
+
+func pluginListCmd(installer *plugins.Installer) {
+	manifests, err := installer.ListInstalledWithState()
+	if err != nil {
+		fmt.Printf("Error listing plugins: %v\n", err)
+		return
+	}
+
+	if len(manifests) == 0 {
+		fmt.Println("No plugins installed.")
+		fmt.Println("\nInstall plugins with:")
+		fmt.Println("  picoclaw plugin install github:owner/repo")
+		fmt.Println("  picoclaw plugin install ./local-plugin")
+		return
+	}
+
+	fmt.Println("\nInstalled Plugins:")
+	fmt.Println("------------------")
+	for _, m := range manifests {
+		status := "✓"
+		if !m.Enabled {
+			status = "○"
+		}
+		fmt.Printf("  %s %s v%s\n", status, m.Manifest.Name, m.Manifest.Version)
+		fmt.Printf("    %s\n", m.Manifest.Description)
+		if len(m.Manifest.Keywords) > 0 {
+			fmt.Printf("    Keywords: %v\n", m.Manifest.Keywords)
+		}
+		if m.Source != "" {
+			fmt.Printf("    Source: %s\n", m.Source)
+		}
+		if !m.Enabled {
+			fmt.Printf("    Status: disabled\n")
+		}
+	}
+}
+
+func pluginInstallCmd(installer *plugins.Installer, source string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	var err error
+
+	switch {
+	case strings.HasPrefix(source, "github:"):
+		repo := strings.TrimPrefix(source, "github:")
+		fmt.Printf("Installing from GitHub: %s...\n", repo)
+		err = installer.InstallFromGitHub(ctx, repo)
+
+	case strings.HasPrefix(source, "https://") || strings.HasPrefix(source, "http://"):
+		fmt.Printf("Installing from URL: %s...\n", source)
+		err = installer.InstallFromURL(ctx, source)
+
+	default:
+		// 本地路径
+		absPath, _ := filepath.Abs(source)
+		fmt.Printf("Installing from local: %s...\n", absPath)
+		err = installer.InstallFromLocal(absPath)
+	}
+
+	if err != nil {
+		fmt.Printf("✗ Installation failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("✓ Plugin installed successfully!")
+}
+
+func pluginRemoveCmd(installer *plugins.Installer, name string) {
+	fmt.Printf("Removing plugin '%s'...\n", name)
+
+	if err := installer.Uninstall(name); err != nil {
+		fmt.Printf("✗ Failed to remove plugin: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("✓ Plugin '%s' removed successfully!\n", name)
+}
+
+func pluginEnableCmd(installer *plugins.Installer, name string, enable bool) {
+	var err error
+	if enable {
+		err = installer.Enable(name)
+	} else {
+		err = installer.Disable(name)
+	}
+
+	if err != nil {
+		fmt.Printf("✗ Failed to update plugin state: %v\n", err)
+		os.Exit(1)
+	}
+
+	action := "enabled"
+	if !enable {
+		action = "disabled"
+	}
+	fmt.Printf("✓ Plugin '%s' %s\n", name, action)
+	fmt.Println("  Note: Restart picoclaw gateway for changes to take effect")
+}
+
+func pluginUpdateCmd(installer *plugins.Installer, name string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	fmt.Printf("Updating plugin '%s'...\n", name)
+
+	if err := installer.Update(ctx, name); err != nil {
+		fmt.Printf("✗ Failed to update plugin: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("✓ Plugin '%s' updated successfully!\n", name)
+}
+
+func pluginUpdateAllCmd(installer *plugins.Installer) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	fmt.Println("Updating all plugins...")
+
+	updated, failed := installer.UpdateAll(ctx)
+
+	if len(updated) > 0 {
+		fmt.Printf("\n✓ Updated %d plugin(s):\n", len(updated))
+		for _, name := range updated {
+			fmt.Printf("  - %s\n", name)
+		}
+	}
+
+	if len(failed) > 0 {
+		fmt.Printf("\n✗ Failed to update %d plugin(s):\n", len(failed))
+		for name, err := range failed {
+			fmt.Printf("  - %s: %v\n", name, err)
+		}
+	}
+
+	if len(updated) == 0 && len(failed) == 0 {
+		fmt.Println("No plugins to update.")
+	}
 }
